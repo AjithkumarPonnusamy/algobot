@@ -3,7 +3,7 @@ from datetime import datetime, timedelta
 class OHLCBuilder:
     def __init__(self,symbol, interval_minutes,db_conn=None):
         self.interval = timedelta(minutes=interval_minutes)
-        self.tf = interval_minutes
+        self.tf = str(interval_minutes)+"m"
         self.symbol = symbol
         self.db_conn = db_conn
         self.current_candle = None

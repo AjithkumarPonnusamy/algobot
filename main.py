@@ -1,8 +1,17 @@
-from multiprocessing import Process
-from src.utils.base import run_feed
-from src.strategies.niftyBEP import run_strategy
+import threading
+from src.utils.base import DhanFeedHandler
+from src.strategies.niftyBEP import OptionsStrategy
 
 if __name__ == "__main__":
-    Process(target=run_feed).start()
-    Process(target=run_strategy).start()
+    feed = DhanFeedHandler()
+    strategy = OptionsStrategy(feed)
 
+    t1 = threading.Thread(target=feed.run_feed, daemon=True)
+    t2 = threading.Thread(target=strategy.run_strategy, daemon=True)
+
+    t1.start()
+    t2.start()
+
+    # Keep main thread alive
+    t1.join()
+    t2.join()
