@@ -3,12 +3,12 @@ df = pd.read_csv("https://images.dhan.co/api-data/api-scrip-master-detailed.csv"
 # Filter for NIFTY Futures
 # print(df.columns)
 
-def strike_value(underly,expy_date):
+def strike_value(ce_val,pe_val,expy_date):
 
     ce_strike = df[
         (df['UNDERLYING_SYMBOL'].str.upper() == 'NIFTY') &
         (df['INSTRUMENT'].str.upper().str.contains('OPTIDX'))&
-        (df['STRIKE_PRICE'] == underly)&
+        (df['STRIKE_PRICE'] == ce_val)&
         (df['SM_EXPIRY_DATE'] == expy_date)&
         (df['OPTION_TYPE'] == 'CE')
     ]
@@ -16,7 +16,7 @@ def strike_value(underly,expy_date):
     pe_strike = df[
         (df['UNDERLYING_SYMBOL'].str.upper() == 'NIFTY') &
         (df['INSTRUMENT'].str.upper().str.contains('OPTIDX'))&
-        (df['STRIKE_PRICE'] == underly)&
+        (df['STRIKE_PRICE'] == pe_val)&
         (df['SM_EXPIRY_DATE'] == expy_date)&
         (df['OPTION_TYPE'] == 'PE')
     ] 

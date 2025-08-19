@@ -1,10 +1,10 @@
 import threading
 from src.utils.base import DhanFeedHandler
-from src.strategies.niftyBEP import OptionsStrategy
+from src.strategies.niftyBEP import NiftyOptionsStrategy
 
 if __name__ == "__main__":
     feed = DhanFeedHandler()
-    strategy = OptionsStrategy(feed)
+    strategy = NiftyOptionsStrategy(feed)
 
     t1 = threading.Thread(target=feed.run_feed, daemon=True)
     t2 = threading.Thread(target=strategy.run_strategy, daemon=True)
