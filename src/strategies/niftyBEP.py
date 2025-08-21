@@ -5,7 +5,7 @@ from src.indicators.bep import bep, round_to_50
 from src.dataaggregators.strikeFinder import strike_value
 from src.connections.cache import r
 from src.connections.connectTel import send_telegram_message
-
+from src.connections.connectDB import conn
 
 class NiftyOptionsStrategy():
     def __init__(self, feed, expiry_date="2025-08-21", quantity=75, underlying_symbol="13"):
@@ -33,17 +33,21 @@ class NiftyOptionsStrategy():
         self.atm_bep = self.otm_bep = None
 
         # OHLC Builders
-        self.ohlc_builders = {
-            "nifty_5": OHLCBuilder("nifty", interval_minutes=5),
-            "atm_ce": {
-                "1m": OHLCBuilder("atm_ce", interval_minutes=1),
-                "3m": OHLCBuilder("atm_ce", interval_minutes=3),
-            },
-            "atm_pe": {
-                "1m": OHLCBuilder("atm_pe", interval_minutes=1),
-                "3m": OHLCBuilder("atm_pe", interval_minutes=3),
-            },
-        }
+        self.nifty_5 = OHLCBuilder("nifty",interval_minutes=5,db_conn=conn)
+        self.atm_ce_1 = OHLCBuilder("atm_ce",interval_minutes=1,db_conn=conn)
+        self.atm_ce_3 = OHLCBuilder("atm_ce",interval_minutes=3)
+        self.atm_pe_1 = OHLCBuilder("atm_pe",interval_minutes=1,db_conn=conn)
+        self.atm_pe_3 = OHLCBuilder("atm_pe",interval_minutes=3)
+
+        #OHLC Logger
+        self.nifty_5_ohlc = None
+        self.atm_ce_1_ohlc = None
+        self.atm_ce_3_ohlc = None
+        self.atm_pe_1_ohlc = None
+        self.atm_pe_3_ohlc = None
+        self.nifty_5_lct = None    
+        self.atm_ce_1_lct =None
+        self.atm_pe_1_lct = None             #last candle time
 
         # Redis pubsub
         self.pubsub = r.pubsub()
@@ -101,8 +105,8 @@ class NiftyOptionsStrategy():
     def process_underlying_tick(self, sec_id, ltp):
         """Handle Nifty (underlying) ticks"""
         if sec_id == self.underlying_symbol and ltp:
-            self.ohlc_builders["nifty_5"].add_tick(ltp)
-            candle = self.ohlc_builders["nifty_5"].get_first_candle()
+            self.nifty_5.add_tick(ltp)
+            candle = self.nifty_5.get_first_candle()
             if candle:
                 self.assign_underlying(candle)
 
@@ -115,23 +119,61 @@ class NiftyOptionsStrategy():
         elif sec_id == self.otm_pe_id: self.otm_pe_ltp = ltp
         elif sec_id == self.atm_ce_id:
             self.atm_ce_ltp = ltp
-            self.ohlc_builders["atm_ce"]["1m"].add_tick(ltp)
-            self.ohlc_builders["atm_ce"]["3m"].add_tick(ltp)
+            self.atm_ce_1.add_tick(ltp)
+            self.atm_ce_3.add_tick(ltp)
         elif sec_id == self.atm_pe_id:
             self.atm_pe_ltp = ltp
-            self.ohlc_builders["atm_pe"]["1m"].add_tick(ltp)
-            self.ohlc_builders["atm_pe"]["3m"].add_tick(ltp)
+            self.atm_pe_1.add_tick(ltp)
+            self.atm_pe_3.add_tick(ltp)
 
         # BEPs
         if self.otm_ce_ltp and self.otm_pe_ltp:
             self.otm_bep = bep(self.otm_ce_ltp, self.otm_pe_ltp)
+            # print(self.otm_bep)
         if self.atm_ce_ltp and self.atm_pe_ltp:
             self.atm_bep = bep(self.atm_ce_ltp, self.atm_pe_ltp)
+            # print(self.atm_bep)
+
+    def execute_strategy_logic(self):
+        if self.atm_ce_1_ohlc['close'] > self.otm_bep:
+            self.place_order(self.atm_ce_id)
+        pass
+
+    def save_OHLC(self):
+        self.nifty_5_ohlc = self.nifty_5.get_last_candle()
+        self.atm_ce_1_ohlc = self.atm_ce_1.get_last_candle()
+        self.atm_ce_3_ohlc = self.atm_ce_3.get_last_candle()
+        self.atm_pe_1_ohlc = self.atm_ce_1.get_last_candle()
+        self.atm_pe_3_ohlc = self.atm_ce_3.get_last_candle()
+        if self.nifty_5_ohlc is not None:
+            candle_time = self.nifty_5_ohlc['time']
+            if candle_time != self.nifty_5_lct:
+                close_value = self.nifty_5_ohlc # or just use price if you want dict
+                send_telegram_message(f"order triggered at close 1minute {close_value}")
+                self.nifty_5.save_to_db(close_value)
+                self.nifty_5_lct = candle_time
+        
+        if self.atm_ce_1_ohlc is not None:
+            candle_time = self.atm_ce_1_ohlc['time']
+            if candle_time != self.atm_ce_1_lct:
+                close_value = self.atm_ce_1_ohlc # or just use price if you want dict
+                send_telegram_message(f"order triggered at close 1minute {close_value}")
+                self.atm_ce_1.save_to_db(close_value)
+                self.atm_ce_1_lct = candle_time
+        
+        if self.atm_pe_1_ohlc is not None:
+            candle_time = self.atm_pe_1_ohlc['time']
+            if candle_time != self.atm_pe_1_lct:
+                close_value = self.atm_pe_1_ohlc # or just use price if you want dict
+                send_telegram_message(f"order triggered at close 1minute {close_value}")
+                self.atm_pe_1.save_to_db(close_value)
+                self.atm_pe_1_lct = candle_time
 
     def process_tick(self, sec_id, ltp, ltt):
         """Main dispatcher for ticks"""
         self.process_underlying_tick(sec_id, ltp)
         self.process_options_tick(sec_id, ltp)
+        self.save_OHLC()
 
     # ------------------------ Run ------------------------
     def run_strategy(self):
@@ -145,6 +187,7 @@ class NiftyOptionsStrategy():
                     try:
                         data = json.loads(msg["data"])
                         self.process_tick(data["sec_id"], data["ltp"], data["ltt"])
+                        
                     except Exception as e:
                         print(f"[Strategy Error] {e}")
         except KeyboardInterrupt:
