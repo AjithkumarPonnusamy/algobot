@@ -7,8 +7,8 @@ from src.connections.cache import r
 from src.connections.connectTel import send_telegram_message
 from src.connections.connectDB import conn
 
-class NiftyOptionsStrategy():
-    def __init__(self, feed, expiry_date="2025-08-21", quantity=75, underlying_symbol="13"):
+class NiftyATMStrategy():
+    def __init__(self, feed, expiry_date="2025-08-28", quantity=75, underlying_symbol="13"):
         """
         Initialize the Options Strategy
         """
@@ -23,14 +23,12 @@ class NiftyOptionsStrategy():
 
         # Strike IDs
         self.atm_ce_id = self.atm_pe_id = None
-        self.otm_ce_id = self.otm_pe_id = None
 
         # LTPs
         self.atm_ce_ltp = self.atm_pe_ltp = None
-        self.otm_ce_ltp = self.otm_pe_ltp = None
 
         # BEPs
-        self.atm_bep = self.otm_bep = None
+        self.atm_bep = None
 
         # OHLC Builders
         self.nifty_5 = OHLCBuilder("nifty",interval_minutes=5,db_conn=conn)
@@ -53,7 +51,7 @@ class NiftyOptionsStrategy():
         self.pubsub = r.pubsub()
 
     # ------------------------ Orders ------------------------
-    def place_order(self, security_id):
+    def place_order(self, security_id,limit):
         """Place a market order"""
         try:
             order_response = self.feed.dhan.place_order(
@@ -61,13 +59,13 @@ class NiftyOptionsStrategy():
                 exchange_segment=self.feed.dhan.NSE_FNO,
                 transaction_type=self.feed.dhan.BUY,
                 quantity=self.quantity,
-                order_type=self.feed.dhan.MARKET,
+                order_type=self.feed.dhan.LIMIT,
                 product_type=self.feed.dhan.INTRA,
-                price=0,
+                price=limit,
             )
             msg = f"✅ Order placed: {order_response}"
             send_telegram_message(msg)
-            print(msg)
+            # print(msg)
             return order_response
         except Exception as e:
             error_msg = f"❌ Order failed for {security_id}: {e}"
@@ -88,14 +86,10 @@ class NiftyOptionsStrategy():
         """Subscribe to ATM & OTM option strikes once underlying is known"""
         if self.under and not self.subscribed:
             try:
-                atm = self.under + 100
-                ce_otm_val, pe_otm_val = atm + 100, atm - 100
-                self.otm_ce_id, self.otm_pe_id = strike_value(ce_otm_val, pe_otm_val, self.expiry_date)
-
-                ce_atm_val, pe_atm_val = atm, atm - 50
+                atm = self.under 
+                
+                ce_atm_val, pe_atm_val = atm - 50, atm 
                 self.atm_ce_id, self.atm_pe_id = strike_value(ce_atm_val, pe_atm_val, self.expiry_date)
-
-                print(f"[Strategy] OTM → CE: {self.otm_ce_id}, PE: {self.otm_pe_id}")
                 print(f"[Strategy] ATM → CE: {self.atm_ce_id}, PE: {self.atm_pe_id}")
                 self.subscribed = True
             except Exception as e:
@@ -115,9 +109,7 @@ class NiftyOptionsStrategy():
         if not self.subscribed:
             self.subscribe_options()
 
-        if sec_id == self.otm_ce_id: self.otm_ce_ltp = ltp
-        elif sec_id == self.otm_pe_id: self.otm_pe_ltp = ltp
-        elif sec_id == self.atm_ce_id:
+        if sec_id == self.atm_ce_id:
             self.atm_ce_ltp = ltp
             self.atm_ce_1.add_tick(ltp)
             self.atm_ce_3.add_tick(ltp)
@@ -135,9 +127,10 @@ class NiftyOptionsStrategy():
             # print(self.atm_bep)
 
     def execute_strategy_logic(self):
-        if self.atm_ce_1_ohlc['close'] > self.otm_bep:
-            self.place_order(self.atm_ce_id)
-        pass
+        if self.atm_ce_1_ohlc['close'] > self.atm_bep:
+            self.place_order(self.atm_ce_id,int(self.atm_ce_1_ohlc['close']))
+        elif self.atm_pe_1_ohlc['close'] > self.atm_bep:
+            self.place_order(self.atm_pe_id,int(self.atm_pe_1_ohlc['close']))
 
     def save_OHLC(self):
         self.nifty_5_ohlc = self.nifty_5.get_last_candle()
@@ -149,7 +142,7 @@ class NiftyOptionsStrategy():
             candle_time = self.nifty_5_ohlc['time']
             if candle_time != self.nifty_5_lct:
                 close_value = self.nifty_5_ohlc # or just use price if you want dict
-                send_telegram_message(f"order triggered at close 1minute {close_value}")
+                # send_telegram_message(f"order triggered at close 1minute {close_value}")
                 self.nifty_5.save_to_db(close_value)
                 self.nifty_5_lct = candle_time
         
@@ -157,7 +150,7 @@ class NiftyOptionsStrategy():
             candle_time = self.atm_ce_1_ohlc['time']
             if candle_time != self.atm_ce_1_lct:
                 close_value = self.atm_ce_1_ohlc # or just use price if you want dict
-                send_telegram_message(f"order triggered at close 1minute {close_value}")
+                # send_telegram_message(f"order triggered at close 1minute {close_value}")
                 self.atm_ce_1.save_to_db(close_value)
                 self.atm_ce_1_lct = candle_time
         
@@ -165,7 +158,7 @@ class NiftyOptionsStrategy():
             candle_time = self.atm_pe_1_ohlc['time']
             if candle_time != self.atm_pe_1_lct:
                 close_value = self.atm_pe_1_ohlc # or just use price if you want dict
-                send_telegram_message(f"order triggered at close 1minute {close_value}")
+                # send_telegram_message(f"order triggered at close 1minute {close_value}")
                 self.atm_pe_1.save_to_db(close_value)
                 self.atm_pe_1_lct = candle_time
 
@@ -190,8 +183,10 @@ class NiftyOptionsStrategy():
                         
                     except Exception as e:
                         print(f"[Strategy Error] {e}")
+
         except KeyboardInterrupt:
             print("[Strategy] Stopped by user")
+
         finally:
             self.cleanup()
 
@@ -228,8 +223,7 @@ class NiftyOptionsStrategy():
 # Usage example
 if __name__ == "__main__":
     # Create strategy instance
-    strategy = NiftyOptionsStrategy(
-        base_strike=25000,
+    strategy = NiftyATMStrategy(
         expiry_date="2025-08-21",
         quantity=75
     )
