@@ -8,12 +8,11 @@ from src.connections.connectTel import send_telegram_message
 from src.connections.connectDB import conn
 
 class NiftyOTMStrategy():
-    def __init__(self, feed, expiry_date="2025-08-28", quantity=75, underlying_symbol="13"):
+    def __init__(self, feed, quantity=75, underlying_symbol="13"):
         """
         Initialize the Options Strategy
         """
         self.feed = feed
-        self.expiry_date = expiry_date
         self.quantity = quantity
         self.underlying_symbol = underlying_symbol  # security ID for underlying
 
@@ -90,10 +89,10 @@ class NiftyOTMStrategy():
             try:
                 atm = self.under + 100
                 ce_otm_val, pe_otm_val = atm + 100, atm - 100
-                self.otm_ce_id, self.otm_pe_id = strike_value(ce_otm_val, pe_otm_val, self.expiry_date)
+                self.otm_ce_id, self.otm_pe_id = strike_value(ce_otm_val, pe_otm_val, self.feed.expiry_date)
 
                 ce_atm_val, pe_atm_val = atm, atm - 50
-                self.atm_ce_id, self.atm_pe_id = strike_value(ce_atm_val, pe_atm_val, self.expiry_date)
+                self.atm_ce_id, self.atm_pe_id = strike_value(ce_atm_val, pe_atm_val, self.feed.expiry_date)
 
                 print(f"[Strategy] OTM → CE: {self.otm_ce_id}, PE: {self.otm_pe_id}")
                 print(f"[Strategy] ATM → CE: {self.atm_ce_id}, PE: {self.atm_pe_id}")
@@ -177,7 +176,7 @@ class NiftyOTMStrategy():
 
     # ------------------------ Run ------------------------
     def run_strategy(self):
-        print(f"[Strategy] Running | Expiry: {self.expiry_date}, Qty: {self.quantity}")
+        print(f"[Strategy] Running | Expiry: {self.feed.expiry_date}, Qty: {self.quantity}")
         self.pubsub.subscribe("ticks")
         print("[Strategy] Listening to Redis ticks...")
 
@@ -228,7 +227,7 @@ class NiftyOTMStrategy():
 # Usage example
 if __name__ == "__main__":
     # Create strategy instance
-    strategy = NiftyOptionsStrategy(
+    strategy = NiftyOTMStrategy(
         base_strike=25000,
         expiry_date="2025-08-21",
         quantity=75

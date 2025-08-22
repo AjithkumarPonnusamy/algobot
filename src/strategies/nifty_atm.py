@@ -8,12 +8,11 @@ from src.connections.connectTel import send_telegram_message
 from src.connections.connectDB import conn
 
 class NiftyATMStrategy():
-    def __init__(self, feed, expiry_date="2025-08-28", quantity=75, underlying_symbol="13"):
+    def __init__(self, feed, quantity=150, underlying_symbol="13"):
         """
         Initialize the Options Strategy
         """
         self.feed = feed
-        self.expiry_date = expiry_date
         self.quantity = quantity
         self.underlying_symbol = underlying_symbol  # security ID for underlying
 
@@ -29,6 +28,12 @@ class NiftyATMStrategy():
 
         # BEPs
         self.atm_bep = None
+
+        # store entry price if in trade
+        self.position = {
+            "CE": None,
+            "PE": None
+        }  
 
         # OHLC Builders
         self.nifty_5 = OHLCBuilder("nifty",interval_minutes=5,db_conn=conn)
@@ -51,21 +56,21 @@ class NiftyATMStrategy():
         self.pubsub = r.pubsub()
 
     # ------------------------ Orders ------------------------
-    def place_order(self, security_id,limit):
+    def place_order(self, security_id,price = None ,side="BUY",order_type="MARKET",quantity=None):
         """Place a market order"""
         try:
+            qty = quantity if quantity is not None else self.quantity
             order_response = self.feed.dhan.place_order(
                 security_id=str(security_id),
                 exchange_segment=self.feed.dhan.NSE_FNO,
-                transaction_type=self.feed.dhan.BUY,
-                quantity=self.quantity,
-                order_type=self.feed.dhan.LIMIT,
+                transaction_type=self.feed.dhan.BUY if side.upper() == "BUY" else self.feed.dhan.SELL,
+                quantity=qty,
+                order_type=self.feed.dhan.MARKET if order_type.upper() == "MARKET" else self.feed.dhan.LIMIT,
                 product_type=self.feed.dhan.INTRA,
-                price=limit,
+                price=price if order_type.upper() == "LIMIT" else 0,  # price only for LIMIT
             )
-            msg = f"✅ Order placed: {order_response}"
+            msg = f"✅ {side.upper()} {order_type.upper()} order placed: {order_response} | Qty: {qty}"
             send_telegram_message(msg)
-            # print(msg)
             return order_response
         except Exception as e:
             error_msg = f"❌ Order failed for {security_id}: {e}"
@@ -89,7 +94,7 @@ class NiftyATMStrategy():
                 atm = self.under 
                 
                 ce_atm_val, pe_atm_val = atm - 50, atm 
-                self.atm_ce_id, self.atm_pe_id = strike_value(ce_atm_val, pe_atm_val, self.expiry_date)
+                self.atm_ce_id, self.atm_pe_id = strike_value(ce_atm_val, pe_atm_val, self.feed.expiry_date)
                 print(f"[Strategy] ATM → CE: {self.atm_ce_id}, PE: {self.atm_pe_id}")
                 self.subscribed = True
             except Exception as e:
@@ -104,7 +109,6 @@ class NiftyATMStrategy():
             if candle:
                 self.assign_underlying(candle)
                 
-
     def process_options_tick(self, sec_id, ltp):
         """Handle option ticks"""
         if not self.subscribed:
@@ -120,13 +124,8 @@ class NiftyATMStrategy():
             self.atm_pe_1.add_tick(ltp)
             self.atm_pe_3.add_tick(ltp)
 
-        # # BEPs
-        # if self.otm_ce_ltp and self.otm_pe_ltp:
-        #     self.otm_bep = bep(self.otm_ce_ltp, self.otm_pe_ltp)
-        #     # print(self.otm_bep)
         if self.atm_ce_ltp and self.atm_pe_ltp:
             self.atm_bep = bep(self.atm_ce_ltp, self.atm_pe_ltp)
-            # print(self.atm_bep)
             # print(self.atm_bep)
 
 
@@ -139,35 +138,124 @@ class NiftyATMStrategy():
         if self.nifty_5_ohlc is not None:
             candle_time = self.nifty_5_ohlc['time']
             if candle_time != self.nifty_5_lct:
-                close_value = self.nifty_5_ohlc # or just use price if you want dict
-                # send_telegram_message(f"order triggered at close 1minute {close_value}")
+                close_value = self.nifty_5_ohlc 
                 self.nifty_5.save_to_db(close_value)
                 self.nifty_5_lct = candle_time
         
         if self.atm_ce_1_ohlc is not None:
             candle_time = self.atm_ce_1_ohlc['time']
             if candle_time != self.atm_ce_1_lct:
-                close_value = self.atm_ce_1_ohlc # or just use price if you want dict
-                # send_telegram_message(f"order triggered at close 1minute {close_value}")
+                close_value = self.atm_ce_1_ohlc
                 self.atm_ce_1.save_to_db(close_value)
                 self.atm_ce_1_lct = candle_time
         
         if self.atm_pe_1_ohlc is not None:
             candle_time = self.atm_pe_1_ohlc['time']
             if candle_time != self.atm_pe_1_lct:
-                close_value = self.atm_pe_1_ohlc # or just use price if you want dict
-                # send_telegram_message(f"order triggered at close 1minute {close_value}")
+                close_value = self.atm_pe_1_ohlc 
                 self.atm_pe_1.save_to_db(close_value)
                 self.atm_pe_1_lct = candle_time
 
     
     def execute_strategy_logic(self):
         if self.atm_ce_1_ohlc is not None:
-            print("executed")
-            if self.atm_ce_1_ohlc['close'] > self.atm_bep:
-                self.place_order(self.atm_ce_id,int(self.atm_ce_1_ohlc['close']))
-            elif self.atm_pe_1_ohlc['close'] > self.atm_bep:
-                self.place_order(self.atm_pe_id,int(self.atm_pe_1_ohlc['close']))
+            ce_close = self.atm_ce_1_ohlc['close']
+             # Entry condition
+            if ce_close > self.atm_bep and self.position["CE"] is None:
+                self.place_order(price=pe_close,order_type="Limit",side="Buy",security_id=self.atm_ce_id)
+                self.position["CE"] = {
+                    "entry": ce_close,
+                    "target1": ce_close + 15,
+                    "target2": ce_close + 30,
+                    "hit_t1": False
+                }
+                print(f"[STRATEGY] Entered CE at {ce_close}")
+
+            # Target checks
+            elif self.position["CE"] is not None:
+                entry_data = self.position["CE"]
+
+                # First Target
+                if not entry_data["hit_t1"] and ce_close >= entry_data["target1"]:
+                    sell_qty = entry_data["quantity"] // 2
+                    if sell_qty > 0:
+                        print(f"[TARGET] CE hit Target 1 at {ce_close} (+15) → Sell {sell_qty}")
+                        self.place_order(
+                            price=ce_close,
+                            order_type="Limit",
+                            side="Sell",
+                            security_id=self.atm_ce_id,
+                            quantity=sell_qty
+                        )
+                        entry_data["quantity"] -= sell_qty
+                    entry_data["hit_t1"] = True
+
+                # Second Target -> Exit
+                if ce_close >= entry_data["target2"]:
+                    sell_qty = entry_data["quantity"]
+                    if sell_qty > 0:
+                        print(f"[TARGET] CE hit Target 2 at {ce_close} (+30) → Exit {sell_qty}")
+                        self.place_order(
+                            price=ce_close,
+                            order_type="Limit",
+                            side="Sell",
+                            security_id=self.atm_ce_id,
+                            quantity=sell_qty
+                        )
+                    self.position["CE"] = None
+
+                 # Exit condition - falls below BEP
+                if ce_close < self.atm_bep and self.position["CE"] is not None:
+                    sell_qty = entry_data["quantity"]
+                    if sell_qty > 0:
+                        print(f"[STOPLOSS] CE hit Stop Loss at {ce_close} → Exit {sell_qty}")
+                        self.place_order(
+                        price=ce_close,
+                        order_type="Market",   # better for stop loss exit
+                        side="Sell",
+                        security_id=self.atm_ce_id,
+                        quantity=sell_qty
+                        )
+                    self.position["CE"] = None
+
+        # ✅ PE Logic
+        if self.atm_pe_1_ohlc is not None:
+            pe_close = self.atm_pe_1_ohlc['close']
+
+            # Entry condition
+            if pe_close > self.atm_bep and self.position["PE"] is None:
+                self.place_order(price=pe_close,order_type="Limit",side="Buy",security_id=self.atm_pe_id)
+                self.position["PE"] = {
+                    "entry": pe_close,
+                    "target1": pe_close + 15,
+                    "target2": pe_close + 30,
+                    "hit_t1": False
+                }
+                print(f"[STRATEGY] Entered PE at {pe_close}")
+
+            # Exit condition - falls below BEP
+            elif pe_close < self.atm_bep and self.position["PE"] is not None:
+                print(f"[STRATEGY] Exited PE at {pe_close} (below BEP)")
+                self.place_order(price=pe_close,order_type="Limit",side="Sell",security_id=self.atm_pe_id)
+                self.position["PE"] = None
+
+            # Target checks
+            elif self.position["PE"] is not None:
+                entry_data = self.position["PE"]
+
+                # First Target
+                if not entry_data["hit_t1"] and pe_close >= entry_data["target1"]:
+                    print(f"[TARGET] PE hit Target 1 at {pe_close} (+15)")
+                    self.place_order(price=pe_close,order_type="Limit",side="Sell",security_id=self.atm_pe_id)
+                    entry_data["hit_t1"] = True
+
+                # Second Target -> Exit
+                if pe_close >= entry_data["target2"]:
+                    self.exit_position(self.atm_pe_id, int(pe_close))
+                    print(f"[TARGET] PE hit Target 2 at {pe_close} (+30) → EXIT")
+                    self.place_order(price=pe_close,order_type="Limit",side="Sell",security_id=self.atm_ce_id)
+                    self.position["PE"] = None
+
 
     def process_tick(self, sec_id, ltp, ltt):
         """Main dispatcher for ticks"""
@@ -175,11 +263,10 @@ class NiftyATMStrategy():
         self.process_options_tick(sec_id, ltp)
         self.save_OHLC()
         self.execute_strategy_logic()
-        
 
     # ------------------------ Run ------------------------
     def run_strategy(self):
-        print(f"[Strategy] Running | Expiry: {self.expiry_date}, Qty: {self.quantity}")
+        print(f"[Strategy] Running | Expiry: {self.feed.expiry_date}, Qty: {self.quantity}")
         self.pubsub.subscribe("ticks")
         print("[Strategy] Listening to Redis ticks...")
 
@@ -214,7 +301,6 @@ class NiftyATMStrategy():
             "underlying": self.under,
             "subscribed": self.subscribed,
             "ATM": {"CE": self.atm_ce_id, "PE": self.atm_pe_id, "BEP": self.atm_bep},
-            # "OTM": {"CE": self.otm_ce_id, "PE": self.otm_pe_id, "BEP": self.otm_bep},
         }
 
     def reset_subscription(self):
@@ -222,8 +308,6 @@ class NiftyATMStrategy():
         Reset subscription status (useful for testing or restarting)
         """
         self.subscribed = False
-        # self.otm_ce_id = None
-        # self.otm_pe_id = None
         self.last_ce_ltp = None
         self.last_pe_ltp = None
         print("[Strategy] Subscription reset")
