@@ -103,6 +103,7 @@ class NiftyATMStrategy():
             candle = self.nifty_5.get_first_candle()
             if candle:
                 self.assign_underlying(candle)
+                
 
     def process_options_tick(self, sec_id, ltp):
         """Handle option ticks"""
@@ -111,6 +112,7 @@ class NiftyATMStrategy():
 
         if sec_id == self.atm_ce_id:
             self.atm_ce_ltp = ltp
+            # print(self.atm_ce_1_ohlc['close'])
             self.atm_ce_1.add_tick(ltp)
             self.atm_ce_3.add_tick(ltp)
         elif sec_id == self.atm_pe_id:
@@ -118,19 +120,15 @@ class NiftyATMStrategy():
             self.atm_pe_1.add_tick(ltp)
             self.atm_pe_3.add_tick(ltp)
 
-        # BEPs
-        if self.otm_ce_ltp and self.otm_pe_ltp:
-            self.otm_bep = bep(self.otm_ce_ltp, self.otm_pe_ltp)
-            # print(self.otm_bep)
+        # # BEPs
+        # if self.otm_ce_ltp and self.otm_pe_ltp:
+        #     self.otm_bep = bep(self.otm_ce_ltp, self.otm_pe_ltp)
+        #     # print(self.otm_bep)
         if self.atm_ce_ltp and self.atm_pe_ltp:
             self.atm_bep = bep(self.atm_ce_ltp, self.atm_pe_ltp)
             # print(self.atm_bep)
+            # print(self.atm_bep)
 
-    def execute_strategy_logic(self):
-        if self.atm_ce_1_ohlc['close'] > self.atm_bep:
-            self.place_order(self.atm_ce_id,int(self.atm_ce_1_ohlc['close']))
-        elif self.atm_pe_1_ohlc['close'] > self.atm_bep:
-            self.place_order(self.atm_pe_id,int(self.atm_pe_1_ohlc['close']))
 
     def save_OHLC(self):
         self.nifty_5_ohlc = self.nifty_5.get_last_candle()
@@ -162,11 +160,22 @@ class NiftyATMStrategy():
                 self.atm_pe_1.save_to_db(close_value)
                 self.atm_pe_1_lct = candle_time
 
+    
+    def execute_strategy_logic(self):
+        if self.atm_ce_1_ohlc is not None:
+            print("executed")
+            if self.atm_ce_1_ohlc['close'] > self.atm_bep:
+                self.place_order(self.atm_ce_id,int(self.atm_ce_1_ohlc['close']))
+            elif self.atm_pe_1_ohlc['close'] > self.atm_bep:
+                self.place_order(self.atm_pe_id,int(self.atm_pe_1_ohlc['close']))
+
     def process_tick(self, sec_id, ltp, ltt):
         """Main dispatcher for ticks"""
         self.process_underlying_tick(sec_id, ltp)
         self.process_options_tick(sec_id, ltp)
         self.save_OHLC()
+        self.execute_strategy_logic()
+        
 
     # ------------------------ Run ------------------------
     def run_strategy(self):
@@ -205,7 +214,7 @@ class NiftyATMStrategy():
             "underlying": self.under,
             "subscribed": self.subscribed,
             "ATM": {"CE": self.atm_ce_id, "PE": self.atm_pe_id, "BEP": self.atm_bep},
-            "OTM": {"CE": self.otm_ce_id, "PE": self.otm_pe_id, "BEP": self.otm_bep},
+            # "OTM": {"CE": self.otm_ce_id, "PE": self.otm_pe_id, "BEP": self.otm_bep},
         }
 
     def reset_subscription(self):
@@ -213,8 +222,8 @@ class NiftyATMStrategy():
         Reset subscription status (useful for testing or restarting)
         """
         self.subscribed = False
-        self.otm_ce_id = None
-        self.otm_pe_id = None
+        # self.otm_ce_id = None
+        # self.otm_pe_id = None
         self.last_ce_ltp = None
         self.last_pe_ltp = None
         print("[Strategy] Subscription reset")

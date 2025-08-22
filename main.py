@@ -17,6 +17,7 @@ if __name__ == "__main__":
     t3.start()
 
     # Keep main thread alive
-    t1.join()
+    t1.join()    
     t2.join()
     t3.join()
+

@@ -9,7 +9,7 @@ from dotenv import load_dotenv
 from src.connections.cache import r
 
 class DhanFeedHandler:
-    def __init__(self, expiry_date="2025-08-21", strike_price=24900, interval_minutes=5):
+    def __init__(self, expiry_date="2025-08-28", strike_price=24900, interval_minutes=5):
         """
         Initialize the Dhan Feed Handler
         
