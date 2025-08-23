@@ -160,8 +160,9 @@ class NiftyATMStrategy():
     def execute_strategy_logic(self):
         if self.atm_ce_1_ohlc is not None:
             ce_close = self.atm_ce_1_ohlc['close']
+            ce_low = self.atm_ce_1_ohlc['low']
              # Entry condition
-            if ce_close > self.atm_bep and self.position["CE"] is None:
+            if ce_low < self.atm_bep and ce_close > self.atm_bep and self.position["CE"] is None:
                 self.place_order(price=pe_close,order_type="Limit",side="Buy",security_id=self.atm_ce_id)
                 self.position["CE"] = {
                     "entry": ce_close,
@@ -221,9 +222,10 @@ class NiftyATMStrategy():
         # ✅ PE Logic
         if self.atm_pe_1_ohlc is not None:
             pe_close = self.atm_pe_1_ohlc['close']
+            pe_low = self.atm_pe_1_ohlc['low']
 
             # Entry condition
-            if pe_close > self.atm_bep and self.position["PE"] is None:
+            if pe_close > self.atm_bep and pe_low < self.atm_bep and self.position["PE"] is None:
                 self.place_order(price=pe_close,order_type="Limit",side="Buy",security_id=self.atm_pe_id)
                 self.position["PE"] = {
                     "entry": pe_close,

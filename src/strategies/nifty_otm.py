@@ -173,6 +173,7 @@ class NiftyOTMStrategy():
         self.process_underlying_tick(sec_id, ltp)
         self.process_options_tick(sec_id, ltp)
         self.save_OHLC()
+        self.execute_strategy_logic()
 
     # ------------------------ Run ------------------------
     def run_strategy(self):
