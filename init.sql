@@ -1,6 +1,7 @@
--- Users & Authentication
 
-CREATE TABLE users (
+-- Users & Authentication
+Create schema users
+CREATE TABLE users.users (
     user_id SERIAL PRIMARY KEY,
     name TEXT NOT NULL,
     email TEXT UNIQUE NOT NULL,
@@ -8,16 +9,16 @@ CREATE TABLE users (
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
-CREATE TABLE brokers (
+CREATE TABLE users.brokers (
     broker_id SERIAL PRIMARY KEY,
     name TEXT NOT NULL,
     api_base_url TEXT
 );
 
-CREATE TABLE user_broker_accounts (
+CREATE TABLE users.user_broker_accounts (
     account_id SERIAL PRIMARY KEY,
-    user_id INT REFERENCES users(user_id),
-    broker_id INT REFERENCES brokers(broker_id),
+    user_id INT REFERENCES users.users(user_id),
+    broker_id INT REFERENCES users.brokers(broker_id),
     api_key TEXT,
     api_secret TEXT,
     account_tag TEXT, -- e.g., “Dhan-Paper” or “Zerodha-Live”
@@ -27,8 +28,8 @@ CREATE TABLE user_broker_accounts (
 
 
 -- Market Data
-
-CREATE TABLE symbols (
+create schema market_data;
+CREATE TABLE market_data.symbols (
     symbol_id SERIAL PRIMARY KEY,
     symbol TEXT NOT NULL,      -- e.g., "NIFTY", "BANKNIFTY"
     exchange TEXT NOT NULL,    -- NSE, BSE
@@ -36,9 +37,9 @@ CREATE TABLE symbols (
     tick_size NUMERIC(10,2)
 );
 
-CREATE TABLE ohlc_data (
+CREATE TABLE market_data.ohlc_data (
     ohlc_id BIGSERIAL PRIMARY KEY,
-    symbol_id INT REFERENCES symbols(symbol_id),
+    symbol_id INT REFERENCES market_data.symbols(symbol_id),
     interval TEXT, -- "1m", "5m", etc.
     open NUMERIC(15,5),
     high NUMERIC(15,5),
@@ -49,9 +50,9 @@ CREATE TABLE ohlc_data (
     UNIQUE(symbol_id, interval, candle_time)
 );
 
-CREATE TABLE live_ticks (
+CREATE TABLE market_data.live_ticks (
     tick_id BIGSERIAL PRIMARY KEY,
-    symbol_id INT REFERENCES symbols(symbol_id),
+    symbol_id INT REFERENCES market_data.symbols(symbol_id),
     ltp NUMERIC(15,5),
     bid NUMERIC(15,5),
     ask NUMERIC(15,5),
@@ -60,30 +61,30 @@ CREATE TABLE live_ticks (
 
 
 -- Strategies
-
-CREATE TABLE strategies (
+create schema strategy;
+CREATE TABLE strategy.strategies (
     strategy_id SERIAL PRIMARY KEY,
     name TEXT NOT NULL,
     description TEXT,
-    created_by INT REFERENCES users(user_id),
+    created_by INT REFERENCES users.users(user_id),
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
-CREATE TABLE user_strategies (
+CREATE TABLE strategy.user_strategies (
     user_strategy_id SERIAL PRIMARY KEY,
-    user_id INT REFERENCES users(user_id),
-    strategy_id INT REFERENCES strategies(strategy_id),
+    user_id INT REFERENCES users.users(user_id),
+    strategy_id INT REFERENCES strategy.strategies(strategy_id),
     params JSONB,  -- Store flexible strategy parameters
     is_active BOOLEAN DEFAULT TRUE,
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
 -- Orders & Trades
-
-CREATE TABLE orders (
+create schema trades;
+CREATE TABLE trades.orders (
     order_id SERIAL PRIMARY KEY,
-    user_strategy_id INT REFERENCES user_strategies(user_strategy_id),
-    symbol_id INT REFERENCES symbols(symbol_id),
+    user_strategy_id INT REFERENCES strategy.user_strategies(user_strategy_id),
+    symbol_id INT REFERENCES market_data.symbols(symbol_id),
     broker_order_id TEXT,
     side TEXT, -- BUY or SELL
     quantity INT,
@@ -94,20 +95,20 @@ CREATE TABLE orders (
     updated_at TIMESTAMPTZ
 );
 
-CREATE TABLE trades (
+CREATE TABLE trades.trades (
     trade_id SERIAL PRIMARY KEY,
-    order_id INT REFERENCES orders(order_id),
+    order_id INT REFERENCES trades.orders(order_id),
     fill_price NUMERIC(15,5),
     fill_qty INT,
     trade_time TIMESTAMPTZ
 );
 
 -- Positions & Pnl
-
-CREATE TABLE positions (
+create schema positions;
+CREATE TABLE positions.positions (
     position_id SERIAL PRIMARY KEY,
-    user_strategy_id INT REFERENCES user_strategies(user_strategy_id),
-    symbol_id INT REFERENCES symbols(symbol_id),
+    user_strategy_id INT REFERENCES strategy.user_strategies(user_strategy_id),
+    symbol_id INT REFERENCES market_data.symbols(symbol_id),
     net_qty INT,
     avg_price NUMERIC(15,5),
     realized_pnl NUMERIC(15,2) DEFAULT 0,
@@ -116,10 +117,10 @@ CREATE TABLE positions (
 );
 
 -- Logs & Audit
-
-CREATE TABLE activity_logs (
+create schema logs;
+CREATE TABLE logs.activity_logs (
     log_id BIGSERIAL PRIMARY KEY,
-    user_id INT REFERENCES users(user_id),
+    user_id INT REFERENCES users.users(user_id),
     action TEXT,
     details JSONB,
     log_time TIMESTAMPTZ DEFAULT NOW()

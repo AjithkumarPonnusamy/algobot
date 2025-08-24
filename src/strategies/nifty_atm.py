@@ -15,6 +15,7 @@ class NiftyATMStrategy():
         self.feed = feed
         self.quantity = quantity
         self.underlying_symbol = underlying_symbol  # security ID for underlying
+        self.strategy_id = "ST002"
 
         # State
         self.under = None
@@ -138,22 +139,34 @@ class NiftyATMStrategy():
         if self.nifty_5_ohlc is not None:
             candle_time = self.nifty_5_ohlc['time']
             if candle_time != self.nifty_5_lct:
-                close_value = self.nifty_5_ohlc 
-                self.nifty_5.save_to_db(close_value)
+                data = {
+                    "strategy_id":self.strategy_id,
+                    "symbol": "nifty_5m",
+                    "candle": self.nifty_5_ohlc
+                }
+                r.publish("ohlc_channel", json.dumps(data))
                 self.nifty_5_lct = candle_time
         
         if self.atm_ce_1_ohlc is not None:
             candle_time = self.atm_ce_1_ohlc['time']
             if candle_time != self.atm_ce_1_lct:
-                close_value = self.atm_ce_1_ohlc
-                self.atm_ce_1.save_to_db(close_value)
-                self.atm_ce_1_lct = candle_time
+               data = {
+                   "strategy_id":self.strategy_id,
+                    "symbol": "atm_ce_1m",
+                    "candle": self.atm_ce_1_ohlc
+                }
+               r.publish("ohlc_channel", json.dumps(data))
+               self.atm_ce_1_lct = candle_time
         
         if self.atm_pe_1_ohlc is not None:
             candle_time = self.atm_pe_1_ohlc['time']
             if candle_time != self.atm_pe_1_lct:
-                close_value = self.atm_pe_1_ohlc 
-                self.atm_pe_1.save_to_db(close_value)
+                data = {
+                    "strategy_id":self.strategy_id,
+                    "symbol": "atm_pe_1m",
+                    "candle": self.atm_pe_1_ohlc
+                }
+                r.publish("ohlc_channel", json.dumps(data))
                 self.atm_pe_1_lct = candle_time
 
     

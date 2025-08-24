@@ -8,14 +8,14 @@ from src.connections.connectTel import send_telegram_message
 from src.connections.connectDB import conn
 
 class NiftyOTMStrategy():
-    def __init__(self, feed, quantity=75, underlying_symbol="13"):
+    def __init__(self, feed, quantity=150, underlying_symbol="13"):
         """
         Initialize the Options Strategy
         """
         self.feed = feed
         self.quantity = quantity
         self.underlying_symbol = underlying_symbol  # security ID for underlying
-
+        self.strategy_id = "ST001"
         # State
         self.under = None
         self.subscribed = False
@@ -147,25 +147,34 @@ class NiftyOTMStrategy():
         if self.nifty_5_ohlc is not None:
             candle_time = self.nifty_5_ohlc['time']
             if candle_time != self.nifty_5_lct:
-                close_value = self.nifty_5_ohlc # or just use price if you want dict
-                # send_telegram_message(f"order triggered at close 1minute {close_value}")
-                self.nifty_5.save_to_db(close_value)
+                data = {
+                    "strategy_id":self.strategy_id,
+                    "symbol": "nifty_5m",
+                    "candle": self.nifty_5_ohlc
+                }
+                r.publish("ohlc_channel", json.dumps(data))
                 self.nifty_5_lct = candle_time
         
         if self.atm_ce_1_ohlc is not None:
             candle_time = self.atm_ce_1_ohlc['time']
             if candle_time != self.atm_ce_1_lct:
-                close_value = self.atm_ce_1_ohlc # or just use price if you want dict
-                # send_telegram_message(f"order triggered at close 1minute {close_value}")
-                self.atm_ce_1.save_to_db(close_value)
+                data = {
+                   "strategy_id":self.strategy_id,
+                    "symbol": "atm_ce_1m",
+                    "candle": self.atm_ce_1_ohlc
+                }
+                r.publish("ohlc_channel", json.dumps(data))
                 self.atm_ce_1_lct = candle_time
         
         if self.atm_pe_1_ohlc is not None:
             candle_time = self.atm_pe_1_ohlc['time']
             if candle_time != self.atm_pe_1_lct:
-                close_value = self.atm_pe_1_ohlc # or just use price if you want dict
-                # send_telegram_message(f"order triggered at close 1minute {close_value}")
-                self.atm_pe_1.save_to_db(close_value)
+                data = {
+                    "strategy_id":self.strategy_id,
+                    "symbol": "atm_pe_1m",
+                    "candle": self.atm_pe_1_ohlc
+                }
+                r.publish("ohlc_channel", json.dumps(data))
                 self.atm_pe_1_lct = candle_time
 
     def process_tick(self, sec_id, ltp, ltt):
