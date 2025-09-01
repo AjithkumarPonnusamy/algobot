@@ -9,7 +9,7 @@ from dotenv import load_dotenv
 from src.connections.cache import r
 
 class DhanFeedHandler:
-    def __init__(self, expiry_date="2025-08-28", strike_price=24900, interval_minutes=5):
+    def __init__(self, expiry_date="2025-09-02", strike_price=24900, interval_minutes=5):
         """
         Initialize the Dhan Feed Handler
         
@@ -19,7 +19,7 @@ class DhanFeedHandler:
             interval_minutes (int): Candle interval in minutes
         """
         load_dotenv(".env")
-        
+        self.expiry_date = expiry_date
         # Redis setup
         self.pubsub = r.pubsub()
         self.pubsub.subscribe("subscribe_queue")
@@ -32,7 +32,7 @@ class DhanFeedHandler:
         self.dhan = dhanhq(self.client_id, self.access_token)
         
         # Get option strikes
-        self.nse_fno_ids = get_strikes(expiry_date, strike_price)
+        self.nse_fno_ids = get_strikes(self.expiry_date, strike_price)
         
         # Setup instruments
         self.instruments = self._setup_instruments()

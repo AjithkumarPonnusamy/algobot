@@ -27,7 +27,7 @@ class OHLCBuilder:
         if self.current_time != candle_time:
             if self.current_candle:
                 self.ohlc_list.append(self.current_candle)
-                print("✅ Candle closed:", self.current_candle)
+                # print("✅ Candle closed:", self.current_candle)
             self.current_time = candle_time
             self.current_candle = {
                 "symbol":self.symbol,

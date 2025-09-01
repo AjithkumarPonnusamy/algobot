@@ -1,7 +1,8 @@
 import psycopg2
 import redis
 import json
-from connections.cache import r
+import threading
+from src.connections.cache import r
 # PostgreSQL connection
 conn = psycopg2.connect(
     host="localhost",
@@ -13,9 +14,9 @@ conn = psycopg2.connect(
 
 cursor = conn.cursor()
 
-def save_to_db(strategy_id,symbol,candle):
+def save_ohlc(strategy_id,symbol,candle):
     query = """
-        INSERT INTO candle_hist (strategy_id,symbol, time, open, high, low, close)
+        INSERT INTO market_data.ohlc_data (strategy_id,symbol, candle_time, open, high, low, close)
         VALUES (%s, %s, %s, %s, %s, %s, %s)
     """
     
@@ -28,17 +29,40 @@ def save_to_db(strategy_id,symbol,candle):
         candle["low"],
         candle["close"],
     ))
+    conn.commit()   
+
+def handle_strategy_execution(strategy_id,entry,target1,target2,hit_t1,quantity):
+    query = """
+        INSERT INTO trades.test (strategy_id,entry,target1,target2,hit_1,quantity)
+        VALUES (%s,%s,%s,%s,%s)
+"""
+    cursor.execute(query,(
+                strategy_id,
+                   entry,
+                      target1,
+                         target2,
+                            hit_t1,
+                              quantity  ))
     conn.commit()
 
-pubsub = r.pubsub()
-pubsub.subscribe("ohlc_channel")
+def run_db_worker():
+    pubsub = r.pubsub()
+    pubsub.subscribe("ohlc_channel","strategy_exec")
 
-print("DB Worker listening to Redis...")
+    print("DB Worker listening to Redis...")
+    for message in pubsub.listen():
+        if message["type"] == "message":
+            # print(f"Message : {message}")
+            channel = message["channel"]
+            data = json.loads(message["data"])
+            # print(f"data : {data}")
+            # print(f"channel : {channel}")
+            
+            if channel == "ohlc_channel":
+                save_ohlc(data["strategy_id"], data["symbol"], data["candle"])
+            elif channel == "strategy_exec":
+                handle_strategy_execution(data["strategy_id"],data["entry"],data["target1"],data["target2"],data["hit_t1"],data["quantity"])
 
-for message in pubsub.listen():
-    if message["type"] == "message":
-        data = json.loads(message["data"])
-        save_to_db(data["strategy_id"], data["symbol"], data["candle"])
 
 
 
