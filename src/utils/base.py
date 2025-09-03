@@ -9,7 +9,7 @@ from dotenv import load_dotenv
 from src.connections.cache import r
 
 class DhanFeedHandler:
-    def __init__(self, expiry_date="2025-09-02", strike_price=24900, interval_minutes=5):
+    def __init__(self, expiry_date="2025-09-09", strike_price=24900, interval_minutes=5):
         """
         Initialize the Dhan Feed Handler
         
@@ -106,8 +106,8 @@ class DhanFeedHandler:
             print("[Feed] Feed stopped by user")
         except Exception as e:
             print(f"[Feed] Error in feed: {str(e)}")
-        finally:
-            self._cleanup()
+        # finally:
+        #     self._cleanup()
     
     def _cleanup(self):
         """

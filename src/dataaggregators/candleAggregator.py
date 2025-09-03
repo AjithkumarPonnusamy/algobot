@@ -26,6 +26,7 @@ class OHLCBuilder:
         # Start a new candle
         if self.current_time != candle_time:
             if self.current_candle:
+                self.current_candle["final"] = True
                 self.ohlc_list.append(self.current_candle)
                 # print("✅ Candle closed:", self.current_candle)
             self.current_time = candle_time
@@ -36,6 +37,7 @@ class OHLCBuilder:
                 "high": ltp,
                 "low": ltp,
                 "close": ltp,
+                "final": False 
             }
         else:
             # Update existing candle

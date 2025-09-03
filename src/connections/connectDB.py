@@ -33,8 +33,8 @@ def save_ohlc(strategy_id,symbol,candle):
 
 def handle_strategy_execution(strategy_id,entry,target1,target2,hit_t1,quantity):
     query = """
-        INSERT INTO trades.test (strategy_id,entry,target1,target2,hit_1,quantity)
-        VALUES (%s,%s,%s,%s,%s)
+        INSERT INTO trades.test (strategy_id,entry,target1,target2,hit_t1,quantity)
+        VALUES (%s,%s,%s,%s,%s,%s)
 """
     cursor.execute(query,(
                 strategy_id,
