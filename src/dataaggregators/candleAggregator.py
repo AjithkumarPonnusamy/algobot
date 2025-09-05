@@ -14,6 +14,7 @@ class OHLCBuilder:
         interval_seconds = self.interval.total_seconds()
         timestamp_seconds = timestamp.timestamp()
         candle_start_timestamp = timestamp_seconds - (timestamp_seconds % interval_seconds)
+        
         return datetime.fromtimestamp(candle_start_timestamp)
 
     def add_tick(self, ltp, timestamp=None):

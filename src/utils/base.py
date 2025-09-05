@@ -102,8 +102,8 @@ class DhanFeedHandler:
                 res = self.data.get_data()
                 self.process_tick_data(res)
                 
-        except KeyboardInterrupt:
-            print("[Feed] Feed stopped by user")
+        # except KeyboardInterrupt:
+        #     print("[Feed] Feed stopped by user")
         except Exception as e:
             print(f"[Feed] Error in feed: {str(e)}")
         # finally:

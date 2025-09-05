@@ -18,7 +18,7 @@ class NiftyATMStrategy():
 
         # State
         # self.under = None
-        self.under = 24850
+        self.under = 24700
         self.subscribed = False
 
         # Strike IDs
@@ -35,6 +35,7 @@ class NiftyATMStrategy():
             "CE": None,
             "PE": None
         }  
+        self.trade_completed = False
 
         # OHLC Builders
         self.nifty_5 = OHLCBuilder("nifty",interval_minutes=5)
@@ -89,7 +90,6 @@ class NiftyATMStrategy():
                 self.under = round_to_50(int(close_price))
                 print(f"[Strategy] Underlying updated for {self.strategy_id} → {self.under}")
                 
-
 
     def subscribe_options(self):
         """Subscribe to ATM & OTM option strikes once underlying is known"""
@@ -155,6 +155,7 @@ class NiftyATMStrategy():
         self.atm_pe_3_ohlc = self.atm_pe_3.get_last_candle()
         if self.nifty_5_ohlc is not None:
             candle_time = self.nifty_5_ohlc['time']
+            
             if candle_time != self.nifty_5_lct:
                 data = {
                     "strategy_id":self.strategy_id,
@@ -195,23 +196,26 @@ class NiftyATMStrategy():
             ce_final = self.atm_ce_1_ohlc['final']
             ce_ltp = self.atm_ce_strike_ltp
              # Entry condition
-            if ce_low <= self.atm_bep and ce_close > self.atm_bep and self.position["CE"] is None:
+            if (ce_low <= self.atm_bep and ce_close > self.atm_bep and self.position["CE"] is None and not self.trade_completed):
                 self.place_order(price=ce_close,order_type="Limit",side="Buy",security_id=self.atm_ce_id)
                 self.position["CE"] = {
                     "strategy_id" : self.strategy_id,
-                    "entry": ce_close,
+                    "entry": (ce_close + self.atm_bep)/2,
                     "target1": ce_close + 15,
                     "target2": ce_close + 30,
                     "hit_t1": False,
-                    "quantity": self.quantity
+                    "hit_t2": False,
+                    "quantity": self.quantity,
+                    "entry_time": self.atm_ce_1_ohlc["time"]
                 }
                 r.publish("strategy_exec", json.dumps(self.position["CE"]))
                 print(f"[STRATEGY] Entered CE at {ce_close}")
 
             # Target checks
             elif self.position["CE"] is not None:
-                entry_data = self.position["CE"]
-                
+                entry_data = self.position["CE"]   
+                entry_time = entry_data["entry_time"]
+                current_candle_time = self.atm_ce_1_ohlc["time"]
                 # First Target
                 if not entry_data["hit_t1"] and ce_ltp >= entry_data["target1"]:
                     sell_qty = entry_data["quantity"] / 2
@@ -240,93 +244,75 @@ class NiftyATMStrategy():
                             quantity=sell_qty
                         )
                     self.position["CE"] = None
-
-                # ✅ Exit condition
-                if entry_data["quantity"] > 0:
-                    sell_qty = entry_data["quantity"]
-                    exit_reason = None
-                    exit_price = None
-                    order_type = None
-
-                    # 🔹 1. Stoploss check → only on finalized candle
-                    if self.atm_ce_1_ohlc and ce_final:
-                        ce_close = self.atm_ce_1_ohlc["close"]
-                        ce_high = self.atm_ce_1_ohlc["high"]
-
-                        if ce_close < self.atm_bep and ce_high > self.atm_bep:
-                            exit_price = ce_close
-                            order_type = "Market"  # force exit
-                            exit_reason = f"[STOPLOSS] CE breached BEP {self.atm_bep} → Exit {sell_qty} @ {ce_close}"
-
-                    # 🔹 2. T1 reversal check → works live (tick-based)
-                    if exit_reason is None and entry_data["hit_t1"] and ce_ltp <= entry_data["entry"]:
-                        exit_price = entry_data["entry"]
-                        order_type = "Limit"
-                        exit_reason = f"[REVERSAL] CE reversed after T1 → Exit {sell_qty} @ {exit_price}"
-
-                    # 🔹 Execute exit if any condition is triggered
-                    if exit_reason:
+                    self.trade_completed = True 
+                
+                # Exit condition - falls below BEP
+                if current_candle_time != entry_time:
+                     if entry_data["quantity"] > 0:
                         sell_qty = entry_data["quantity"]
-                        print(exit_reason)
-                        send_telegram_message(exit_reason)
+                        exit_reason = None
+                        exit_price = None
+                        order_type = None
 
-                        self.place_order(
-                            price=exit_price,
-                            order_type=order_type,
-                            side="Sell",
-                            security_id=self.atm_ce_id,
-                            quantity=sell_qty
-                        )
-                        self.position["CE"] = None
+                        # 🔹 1. Stoploss check → only on finalized candle
+                        if self.atm_ce_1_ohlc and ce_final:
+                            ce_close = self.atm_ce_1_ohlc["close"]
+                            ce_high = self.atm_ce_1_ohlc["high"]
 
-                #  # Exit condition - falls below BEP
-                # if (ce_close < self.atm_bep and ce_high > self.atm_bep) or (entry_data["hit_t1"] and self.atm_ce_strike_ltp <=  entry_data["entry"]):
-                #     sell_qty = entry_data["quantity"]
-                #     if sell_qty > 0:
-                #         # ✅ Decide exit type and price
-                #         if ce_close < self.atm_bep and ce_high > self.atm_bep:
-                #             exit_price = ce_close
-                #             order_type = "Market"   # Stoploss → use market for sure exit
-                #         else:
-                #             exit_price = entry_data["entry"]
-                #             order_type = "Limit"    # T1 reversal → use limit at entry price
-                #         print(f"[STOPLOSS] CE hit Stop Loss at {ce_close} → Exit {sell_qty}")
-                #         send_telegram_message(f"[STOPLOSS] CE hit Stop Loss at {ce_close} → Exit {sell_qty}")
-                #         self.place_order(
-                #         price=exit_price,
-                #         order_type=order_type,   # better for stop loss exit
-                #         side="Sell",
-                #         security_id=self.atm_ce_id,
-                #         quantity=sell_qty
-                #         )
-                #     self.position["CE"] = None
+                            if ce_close < self.atm_bep and ce_high > self.atm_bep:
+                                exit_price = ce_close
+                                order_type = "Market"  # force exit
+                                exit_reason = f"[STOPLOSS] CE breached BEP {self.atm_bep} → Exit {sell_qty} @ {ce_close}"
 
+                        # 🔹 2. T1 reversal check → works live (tick-based)
+                        if exit_reason is None and entry_data["hit_t1"] and ce_ltp <= entry_data["entry"]:
+                            exit_price = entry_data["entry"]
+                            order_type = "Limit"
+                            exit_reason = f"[REVERSAL] CE reversed after T1 → Exit {sell_qty} @ {exit_price}"
+
+                        # 🔹 Execute exit if any condition is triggered
+                        if exit_reason:
+                            sell_qty = entry_data["quantity"]
+                            print(exit_reason)
+                            send_telegram_message(exit_reason)
+                            self.place_order(
+                                price=exit_price,
+                                order_type=order_type,
+                                side="Sell",
+                                security_id=self.atm_ce_id,
+                                quantity=sell_qty
+                            )
+                            self.position["CE"] = None
+                   
         # ✅ PE Logic
         if self.atm_pe_1_ohlc is not None:
             pe_close = self.atm_pe_1_ohlc['close']
             pe_low = self.atm_pe_1_ohlc['low']
             pe_high = self.atm_pe_1_ohlc['high']
-            pe_final = self.atm_ce_1_ohlc['final']
+            pe_final = self.atm_pe_1_ohlc['final']
+            pe_time = self.atm_pe_1_ohlc["time"]
             pe_ltp = self.atm_pe_ltp
             # Entry condition
-            if pe_close > self.atm_bep and pe_low <= self.atm_bep and self.position["PE"] is None:
+            if (pe_close > self.atm_bep and pe_low <= self.atm_bep and self.position["PE"] is None and not self.trade_completed):
                 self.place_order(price=pe_close,order_type="Limit",side="Buy",security_id=self.atm_pe_id)
                 self.position["PE"] = {
                     "strategy_id" : self.strategy_id,
-                    "entry": pe_close,
+                    "entry": (pe_close+self.atm_bep)/2,
                     "target1": pe_close + 15,
                     "target2": pe_close + 30,
                     "hit_t1": False,
-                    "quantity": self.quantity
+                    "hit_t2": False,
+                    "quantity": self.quantity,
+                    "entry_time":self.atm_pe_1_ohlc["time"]
                 }
                 r.publish("strategy_exec", json.dumps(self.position["PE"]))
                 print(f"[STRATEGY] Entered PE at {pe_close}")
-
-            
-
+           
             # Target checks
             elif self.position["PE"] is not None:
                 entry_data = self.position["PE"]
+                entry_time = entry_data["entry_time"]
+                current_candle_time = self.atm_pe_1_ohlc["time"]
 
                 # First Target
                 if not entry_data["hit_t1"] and pe_ltp >= entry_data["target1"]:
@@ -355,60 +341,48 @@ class NiftyATMStrategy():
                             security_id=self.atm_pe_id,
                             quantity=sell_qty
                         )
+                    entry_data["hit_t2"] = True
                     self.position["PE"] = None
+                    self.trade_completed = True 
 
-                 # ✅ Exit condition
-                if entry_data["quantity"] > 0:
-                    sell_qty = entry_data["quantity"]
-                    exit_reason = None
-                    exit_price = None
-                    order_type = None
-
-                    # 🔹 1. Stoploss check → only on finalized candle
-                    if self.atm_ce_1_ohlc and pe_final:
-                        pe_close = self.atm_pe_1_ohlc["close"]
-                        pe_high = self.atm_pe_1_ohlc["high"]
-
-                        if pe_close < self.atm_bep and pe_high > self.atm_bep:
-                            exit_price = pe_close
-                            order_type = "Market"  # force exit
-                            exit_reason = f"[STOPLOSS] PE breached BEP {self.atm_bep} → Exit {sell_qty} @ {pe_close}"
-
-                    # 🔹 2. T1 reversal check → works live (tick-based)
-                    if exit_reason is None and entry_data["hit_t1"] and pe_ltp <= entry_data["entry"]:
-                        exit_price = entry_data["entry"]
-                        order_type = "Limit"
-                        exit_reason = f"[REVERSAL] PE reversed after T1 → Exit {sell_qty} @ {exit_price}"
-
-                    # 🔹 Execute exit if any condition is triggered
-                    if exit_reason:
+                 # Exit condition - falls below BEP
+                if current_candle_time != entry_time:
+                    if entry_data["quantity"] > 0:
                         sell_qty = entry_data["quantity"]
-                        print(exit_reason)
-                        send_telegram_message(exit_reason)
+                        exit_reason = None
+                        exit_price = None
+                        order_type = None
 
-                        self.place_order(
-                            price=exit_price,
-                            order_type=order_type,
-                            side="Sell",
-                            security_id=self.atm_pe_id,
-                            quantity=sell_qty
-                        )
-                        self.position["CE"] = None
-                #  # Exit condition - falls below BEP
-                # if pe_close < self.atm_bep and pe_high > self.atm_bep:
-                #     sell_qty = entry_data["quantity"]
-                #     if sell_qty > 0:
-                #         print(f"[STOPLOSS] PE hit Stop Loss at {pe_close} → Exit {sell_qty}")
-                #         send_telegram_message(f"[STOPLOSS] PE hit Stop Loss at {pe_close} → Exit {sell_qty}")
-                #         self.place_order(
-                #         price=pe_close,
-                #         order_type="Market",   # better for stop loss exit
-                #         side="Sell",
-                #         security_id=self.atm_pe_id,
-                #         quantity=sell_qty
-                #         )
-                #     self.position["PE"] = None
+                        # 🔹 1. Stoploss check → only on finalized candle
+                        if self.atm_ce_1_ohlc and pe_final:
+                            pe_close = self.atm_pe_1_ohlc["close"]
+                            pe_high = self.atm_pe_1_ohlc["high"]
+                            
+                            if pe_close < self.atm_bep and pe_high > self.atm_bep:
+                                exit_price = pe_close
+                                order_type = "Market"  # force exit
+                                exit_reason = f"[STOPLOSS] PE breached BEP {self.atm_bep} → Exit {sell_qty} @ {pe_close}"
 
+                        # 🔹 2. T1 reversal check → works live (tick-based)
+                        if exit_reason is None and entry_data["hit_t1"] and pe_ltp <= entry_data["entry"]:
+                            exit_price = entry_data["entry"]
+                            order_type = "Limit"
+                            exit_reason = f"[REVERSAL] PE reversed after T1 → Exit {sell_qty} @ {exit_price}"
+
+                        # 🔹 Execute exit if any condition is triggered
+                        if exit_reason:
+                            sell_qty = entry_data["quantity"]
+                            print(exit_reason)
+                            send_telegram_message(exit_reason)
+                            self.place_order(
+                                price=exit_price,
+                                order_type=order_type,
+                                side="Sell",
+                                security_id=self.atm_pe_id,
+                                quantity=sell_qty
+                            )
+                            self.position["PE"] = None
+                   
     def process_tick(self, sec_id, ltp, ltt):
         """Main dispatcher for ticks"""
         # print(f"{sec_id} : {ltp}")
@@ -428,8 +402,7 @@ class NiftyATMStrategy():
                 if msg["type"] == "message":
                     try:
                         data = json.loads(msg["data"])
-                        self.process_tick(data["sec_id"], data["ltp"], data["ltt"])
-                        
+                        self.process_tick(data["sec_id"], data["ltp"], data["ltt"])            
                     except Exception as e:
                         print(f"[Strategy Error] {e}")
 
