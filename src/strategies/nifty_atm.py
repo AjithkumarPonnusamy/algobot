@@ -207,7 +207,10 @@ class NiftyATMStrategy():
                     "quantity": self.quantity,
                     "entry_time": self.atm_ce_1_ohlc["time"]  # <-- track the candle
                 }
-                r.publish("strategy_exec", json.dumps(self.position["CE"]))
+                # When publishing to Redis
+                position_data = self.position["CE"].copy()
+                position_data["entry_time"] = position_data["entry_time"].isoformat()  # serialize only here
+                r.publish("strategy_exec", json.dumps(position_data))
                 print(f"[STRATEGY] Entered CE at {ce_close}")
                             
             # Target checks
@@ -305,9 +308,12 @@ class NiftyATMStrategy():
                     "quantity": self.quantity,
                     "entry_time": self.atm_pe_1_ohlc["time"]  # <-- track the candle
                 }
-                r.publish("strategy_exec", json.dumps(self.position["PE"]))
+                # When publishing to Redis
+                position_data = self.position["PE"].copy()
+                position_data["entry_time"] = position_data["entry_time"].isoformat()  # serialize only here
+                r.publish("strategy_exec", json.dumps(position_data))
                 print(f"[STRATEGY] Entered PE at {pe_close}")
-           
+            
             # Target checks
             elif self.position["PE"] is not None:
                 entry_data = self.position["PE"]
