@@ -5,7 +5,7 @@ from src.indicators.bep import bep, round_to_50
 from src.dataaggregators.strikeFinder import strike_value
 from src.connections.cache import r
 from src.connections.connectTel import send_telegram_message
-
+import requests
 class NiftyATMStrategy():
     def __init__(self, feed, quantity=150, underlying_symbol="13"):
         """
@@ -57,6 +57,7 @@ class NiftyATMStrategy():
         # Redis pubsub
         self.pubsub = r.pubsub()
 
+        
     # ------------------------ Orders ------------------------
     def place_order(self, security_id,price = None ,side="BUY",order_type="MARKET",quantity=None):
         """Place a market order"""
@@ -122,7 +123,7 @@ class NiftyATMStrategy():
 
         if sec_id == self.atm_ce_id_bep:
             self.atm_ce_ltp = ltp
-            # print(self.atm_ce_1_ohlc['close'])
+
         elif sec_id == self.atm_pe_id_bep:
             self.atm_pe_ltp = ltp
             self.atm_pe_1.add_tick(ltp)
@@ -131,14 +132,10 @@ class NiftyATMStrategy():
             self.atm_ce_strike_ltp = ltp
             self.atm_ce_1.add_tick(ltp)
             self.atm_ce_3.add_tick(ltp)
-        # elif sec_id == self.atm_pe_id:
-        #     self.atm_pe_1.add_tick(ltp)
-        #     self.atm_pe_3.add_tick(ltp)
-        #     print(f"Adding ticks : {self.atm_pe_1}")
-
+     
         if self.atm_ce_ltp and self.atm_pe_ltp:
             self.atm_bep = bep(self.atm_ce_ltp, self.atm_pe_ltp)
-        #     print(self.atm_ce_ltp)
+     
 
     def serialize_candle(self,candle):
         """Convert datetime inside candle to string for JSON"""
@@ -197,7 +194,9 @@ class NiftyATMStrategy():
             ce_ltp = self.atm_ce_strike_ltp
              # Entry condition
             if (ce_low <= self.atm_bep and ce_close > self.atm_bep and self.position["CE"] is None and not self.trade_completed):
-                self.place_order(price=ce_close,order_type="Limit",side="Buy",security_id=self.atm_ce_id)
+                entry = (ce_close + self.atm_bep)/2
+                
+                self.place_order(price=entry,order_type="Limit",side="Buy",security_id=self.atm_ce_id)
                 self.position["CE"] = {
                     "strategy_id" : self.strategy_id,
                     "entry": (ce_close + self.atm_bep)/2,
@@ -206,11 +205,11 @@ class NiftyATMStrategy():
                     "hit_t1": False,
                     "hit_t2": False,
                     "quantity": self.quantity,
-                    "entry_time": self.atm_ce_1_ohlc["time"]
+                    "entry_time": self.atm_ce_1_ohlc["time"]  # <-- track the candle
                 }
                 r.publish("strategy_exec", json.dumps(self.position["CE"]))
                 print(f"[STRATEGY] Entered CE at {ce_close}")
-
+                            
             # Target checks
             elif self.position["CE"] is not None:
                 entry_data = self.position["CE"]   
@@ -247,7 +246,7 @@ class NiftyATMStrategy():
                     self.trade_completed = True 
                 
                 # Exit condition - falls below BEP
-                if current_candle_time != entry_time:
+                if current_candle_time > entry_time:
                      if entry_data["quantity"] > 0:
                         sell_qty = entry_data["quantity"]
                         exit_reason = None
@@ -294,6 +293,7 @@ class NiftyATMStrategy():
             pe_ltp = self.atm_pe_ltp
             # Entry condition
             if (pe_close > self.atm_bep and pe_low <= self.atm_bep and self.position["PE"] is None and not self.trade_completed):
+                entry = (pe_close+self.atm_bep)/2
                 self.place_order(price=pe_close,order_type="Limit",side="Buy",security_id=self.atm_pe_id)
                 self.position["PE"] = {
                     "strategy_id" : self.strategy_id,
@@ -303,7 +303,7 @@ class NiftyATMStrategy():
                     "hit_t1": False,
                     "hit_t2": False,
                     "quantity": self.quantity,
-                    "entry_time":self.atm_pe_1_ohlc["time"]
+                    "entry_time": self.atm_pe_1_ohlc["time"]  # <-- track the candle
                 }
                 r.publish("strategy_exec", json.dumps(self.position["PE"]))
                 print(f"[STRATEGY] Entered PE at {pe_close}")
@@ -346,7 +346,7 @@ class NiftyATMStrategy():
                     self.trade_completed = True 
 
                  # Exit condition - falls below BEP
-                if current_candle_time != entry_time:
+                if current_candle_time > entry_time:
                     if entry_data["quantity"] > 0:
                         sell_qty = entry_data["quantity"]
                         exit_reason = None

@@ -1,127 +1,89 @@
+-- ==============================
+-- Algorithmic Trading Platform DB Schema (PostgreSQL)
+-- Phase 1 (MVP) + Strategy Trade Logs
+-- ==============================
 
--- Users & Authentication
-Create schema users
-CREATE TABLE users.users (
-    user_id SERIAL PRIMARY KEY,
-    name TEXT NOT NULL,
-    email TEXT UNIQUE NOT NULL,
+-- 1. Users Table
+CREATE TABLE users (
+    id SERIAL PRIMARY KEY,
+    email VARCHAR(255) UNIQUE NOT NULL,
     password_hash TEXT NOT NULL,
-    created_at TIMESTAMPTZ DEFAULT NOW()
+    full_name VARCHAR(255),
+    phone_number VARCHAR(20),
+    role VARCHAR(50) DEFAULT 'user',       -- user, admin, creator
+    status VARCHAR(50) DEFAULT 'active',   -- active, inactive, banned
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE TABLE users.brokers (
-    broker_id SERIAL PRIMARY KEY,
-    name TEXT NOT NULL,
-    api_base_url TEXT
+-- 2. Strategies Table
+CREATE TABLE strategies (
+    id SERIAL PRIMARY KEY,
+    name VARCHAR(255) NOT NULL,
+    description TEXT,
+    category VARCHAR(50),      -- intraday, positional, swing, options
+    risk_level VARCHAR(50),    -- low, medium, high
+    creator_id INT REFERENCES users(id) ON DELETE SET NULL,
+    is_active BOOLEAN DEFAULT TRUE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE TABLE users.user_broker_accounts (
-    account_id SERIAL PRIMARY KEY,
-    user_id INT REFERENCES users.users(user_id),
-    broker_id INT REFERENCES users.brokers(broker_id),
+-- 3. Subscriptions Table (many-to-many: users <-> strategies)
+CREATE TABLE subscriptions (
+    id SERIAL PRIMARY KEY,
+    user_id INT REFERENCES users(id) ON DELETE CASCADE,
+    strategy_id INT REFERENCES strategies(id) ON DELETE CASCADE,
+    status VARCHAR(50) DEFAULT 'active',   -- active, expired, cancelled
+    start_date DATE DEFAULT CURRENT_DATE,
+    end_date DATE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- 4. Trade Logs Table (Base trade records)
+CREATE TABLE trade_logs (
+    id SERIAL PRIMARY KEY,
+    user_id INT REFERENCES users(id) ON DELETE CASCADE,
+    strategy_id INT REFERENCES strategies(id) ON DELETE CASCADE,
+    mode VARCHAR(20) DEFAULT 'paper',      -- paper, live
+    symbol VARCHAR(50) NOT NULL,
+    transaction_type VARCHAR(10),          -- BUY, SELL
+    order_type VARCHAR(20),                -- MARKET, LIMIT, SL, SL-M
+    quantity INT NOT NULL,
+    price DECIMAL(12,2),
+    pnl DECIMAL(12,2) DEFAULT 0,
+    broker_order_id VARCHAR(100),          -- For live trading only
+    metadata JSONB,                        -- Store broker response / extra details
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- 6. Broker Accounts Table (Optional for Phase 1, required in Phase 2+)
+CREATE TABLE broker_accounts (
+    id SERIAL PRIMARY KEY,
+    user_id INT REFERENCES users(id) ON DELETE CASCADE,
+    broker_name VARCHAR(50),               -- Zerodha, Dhan, Fyers
     api_key TEXT,
     api_secret TEXT,
-    account_tag TEXT, -- e.g., “Dhan-Paper” or “Zerodha-Live”
-    is_active BOOLEAN DEFAULT TRUE,
-    created_at TIMESTAMPTZ DEFAULT NOW()
+    access_token TEXT,
+    refresh_token TEXT,
+    status VARCHAR(50) DEFAULT 'active',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
+-- ==============================
+-- Indexes for Performance
+-- ==============================
 
--- Market Data
-create schema market_data;
-CREATE TABLE market_data.symbols (
-    symbol_id SERIAL PRIMARY KEY,
-    symbol TEXT NOT NULL,      -- e.g., "NIFTY", "BANKNIFTY"
-    exchange TEXT NOT NULL,    -- NSE, BSE
-    instrument_token BIGINT,   -- broker-specific ID
-    tick_size NUMERIC(10,2)
-);
+CREATE INDEX idx_trade_logs_user ON trade_logs(user_id);
+CREATE INDEX idx_trade_logs_strategy ON trade_logs(strategy_id);
+CREATE INDEX idx_trade_logs_created_at ON trade_logs(created_at);
 
-CREATE TABLE market_data.ohlc_data (
-    ohlc_id BIGSERIAL PRIMARY KEY,
-    symbol_id INT REFERENCES market_data.symbols(symbol_id),
-    interval TEXT, -- "1m", "5m", etc.
-    open NUMERIC(15,5),
-    high NUMERIC(15,5),
-    low NUMERIC(15,5),
-    close NUMERIC(15,5),
-    volume BIGINT,
-    candle_time TIMESTAMPTZ,
-    UNIQUE(symbol_id, interval, candle_time)
-);
+CREATE INDEX idx_strategy_trade_logs_trade ON strategy_trade_logs(trade_log_id);
 
-CREATE TABLE market_data.live_ticks (
-    tick_id BIGSERIAL PRIMARY KEY,
-    symbol_id INT REFERENCES market_data.symbols(symbol_id),
-    ltp NUMERIC(15,5),
-    bid NUMERIC(15,5),
-    ask NUMERIC(15,5),
-    tick_time TIMESTAMPTZ
-);
+CREATE INDEX idx_subscriptions_user ON subscriptions(user_id);
+CREATE INDEX idx_subscriptions_strategy ON subscriptions(strategy_id);
 
-
--- Strategies
-create schema strategy;
-CREATE TABLE strategy.strategies (
-    strategy_id SERIAL PRIMARY KEY,
-    name TEXT NOT NULL,
-    description TEXT,
-    created_by INT REFERENCES users.users(user_id),
-    created_at TIMESTAMPTZ DEFAULT NOW()
-);
-
-CREATE TABLE strategy.user_strategies (
-    user_strategy_id SERIAL PRIMARY KEY,
-    user_id INT REFERENCES users.users(user_id),
-    strategy_id INT REFERENCES strategy.strategies(strategy_id),
-    params JSONB,  -- Store flexible strategy parameters
-    is_active BOOLEAN DEFAULT TRUE,
-    created_at TIMESTAMPTZ DEFAULT NOW()
-);
-
--- Orders & Trades
-create schema trades;
-CREATE TABLE trades.orders (
-    order_id SERIAL PRIMARY KEY,
-    user_strategy_id INT REFERENCES strategy.user_strategies(user_strategy_id),
-    symbol_id INT REFERENCES market_data.symbols(symbol_id),
-    broker_order_id TEXT,
-    side TEXT, -- BUY or SELL
-    quantity INT,
-    price NUMERIC(15,5),
-    order_type TEXT, -- MARKET, LIMIT
-    status TEXT, -- PENDING, FILLED, CANCELLED
-    placed_at TIMESTAMPTZ DEFAULT NOW(),
-    updated_at TIMESTAMPTZ
-);
-
-CREATE TABLE trades.trades (
-    trade_id SERIAL PRIMARY KEY,
-    order_id INT REFERENCES trades.orders(order_id),
-    fill_price NUMERIC(15,5),
-    fill_qty INT,
-    trade_time TIMESTAMPTZ
-);
-
--- Positions & Pnl
-create schema positions;
-CREATE TABLE positions.positions (
-    position_id SERIAL PRIMARY KEY,
-    user_strategy_id INT REFERENCES strategy.user_strategies(user_strategy_id),
-    symbol_id INT REFERENCES market_data.symbols(symbol_id),
-    net_qty INT,
-    avg_price NUMERIC(15,5),
-    realized_pnl NUMERIC(15,2) DEFAULT 0,
-    unrealized_pnl NUMERIC(15,2) DEFAULT 0,
-    last_updated TIMESTAMPTZ DEFAULT NOW()
-);
-
--- Logs & Audit
-create schema logs;
-CREATE TABLE logs.activity_logs (
-    log_id BIGSERIAL PRIMARY KEY,
-    user_id INT REFERENCES users.users(user_id),
-    action TEXT,
-    details JSONB,
-    log_time TIMESTAMPTZ DEFAULT NOW()
-);
+-- ==============================
+-- End of Schema
+-- ==============================
