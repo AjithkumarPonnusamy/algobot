@@ -2,6 +2,7 @@ import json
 import redis
 from dhanhq import marketfeed
 from dhanhq import dhanhq
+from src.connections.connectTel import send_telegram_message
 from src.dataaggregators.candleAggregator import OHLCBuilder
 from src.dataaggregators.strikeFinder import get_strikes
 import os
@@ -106,6 +107,7 @@ class DhanFeedHandler:
         #     print("[Feed] Feed stopped by user")
         except Exception as e:
             print(f"[Feed] Error in feed: {str(e)}")
+            send_telegram_message(str(e))
         # finally:
         #     self._cleanup()
     

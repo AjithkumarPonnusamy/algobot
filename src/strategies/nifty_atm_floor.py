@@ -1,12 +1,12 @@
 import json
 from datetime import datetime
 from src.dataaggregators.candleAggregator import OHLCBuilder
-from src.indicators.bep import bep, round_to_50
+from src.indicators.bep import bep, floor_to_50
 from src.dataaggregators.strikeFinder import strike_value
 from src.connections.cache import r
 from src.connections.connectTel import send_telegram_message
 import requests
-class NiftyATMStrategy():
+class NiftyATMStrategyFloor():
     def __init__(self, feed, quantity=150, underlying_symbol="13"):
         """
         Initialize the Options Strategy
@@ -93,7 +93,7 @@ class NiftyATMStrategy():
         if candle and self.under == None:
             close_price = candle.get("close")
             if close_price:
-                self.under = round_to_50(int(close_price))
+                self.under = floor_to_50(int(close_price))
                 print(f"[Strategy] Underlying updated for {self.strategy_id} → {self.under}")
                 
 

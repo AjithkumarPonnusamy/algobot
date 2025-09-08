@@ -21,7 +21,6 @@ def strike_value(ce_val,pe_val,expy_date):
         (df['OPTION_TYPE'] == 'PE')
     ] 
     
-
     ce = ce_strike[[
         'SECURITY_ID'
     ]]
